@@ -62,7 +62,7 @@ AData::AData()
 		/* Copy each individual value in this record to the main 3D array and print it to the logger */
 		for (j = 0; j < LAT; j++) {
 			for (k = 0; k < LONG; k++) {
-				index = getIndex(i, j, k);
+				index = getIndex(k,j,i);
 				mslp_in[index] = temp_in[j][k];
 				UE_LOG(LogTemp, Log, TEXT(" %d "), mslp_in[index]);
 			}
