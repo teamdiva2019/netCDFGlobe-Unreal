@@ -25,7 +25,7 @@
 #define DIMS 3
 #define TIME 1460
 #define LAT 73
-#define LONG 144
+#define LONG 73
 #define UPDATEINTERVAL 0.1
 
 
@@ -136,7 +136,7 @@ AMyStaticMeshActor::AMyStaticMeshActor(const class FObjectInitializer& PCIP)
 		/* Copy each individual value in this record to the main 3D array and print it to the logger */
 		for (j = 0; j < LAT; j++) {
 			for (k = 0; k < LONG; k++) {
-				index = getIndex(i, j, k);
+				index = getIndex(k,j,i);
 				mslp_in[index] = temp_in[j][k];
 				if (temp_in[j][k] < min) {
 					min = temp_in[j][k];
@@ -152,8 +152,8 @@ AMyStaticMeshActor::AMyStaticMeshActor(const class FObjectInitializer& PCIP)
 	/* Close the file and free all resources. */
 	retval = nc_close(ncid);
 	// Temp max and min values because linear scaling isn't very pretty
-	//min = -12000;
-	//max = -6000;
+	//min = -11500;
+	//max = -6500;
 	if (retval) {
 		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: Close file"));
 	}
@@ -192,7 +192,7 @@ void AMyStaticMeshActor::SetupTexture()
 	if (mUpdateTextureRegion) delete mUpdateTextureRegion;
 
 	int32 w, h;
-	w = 144;
+	w = 73;
 	h = w;
 
 	mDynamicMaterials.Empty();

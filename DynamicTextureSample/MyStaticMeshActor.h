@@ -37,8 +37,5 @@ class DYNAMICTEXTURESAMPLE_API AMyStaticMeshActor : public AStaticMeshActor
 	uint32 mArraySize;
 	uint32 mArrayRowSize;
 	
-
-	//for demostration purposes
-	//GameOfLife gol;
 	float lastTick;
 };
