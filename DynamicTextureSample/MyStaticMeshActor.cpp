@@ -102,6 +102,11 @@ AMyStaticMeshActor::AMyStaticMeshActor(const class FObjectInitializer& PCIP)
 	mDynamicColors = nullptr;
 	mUpdateTextureRegion = nullptr;
 
+	
+}
+
+void AMyStaticMeshActor::BeginPlay()
+{
 	/* There will be netCDF IDs for the file and variable */
 	int ncid, mslpvarid;
 	/* Vectors used when reading in a varialbe */
@@ -126,8 +131,8 @@ AMyStaticMeshActor::AMyStaticMeshActor(const class FObjectInitializer& PCIP)
 	start[1] = 0;
 	start[2] = 0;
 	/* Read in data one timestep at a time */
-	//for (i = 0; i < TIME; i++) {  <-- takes way too long, only read in 100 timesteps for now
-	for (i = 0; i < 100; i++) {
+	for (i = 0; i < TIME; i++) { // <-- takes way too long, only read in 100 timesteps for now
+	//for (i = 0; i < 100; i++) {
 		start[0] = i;
 		/* Copy current timestep to a temp array */
 		retval = nc_get_vara_long(ncid, mslpvarid, start, count, &temp_in[0][0]);
@@ -136,7 +141,7 @@ AMyStaticMeshActor::AMyStaticMeshActor(const class FObjectInitializer& PCIP)
 		/* Copy each individual value in this record to the main 3D array and print it to the logger */
 		for (j = 0; j < LAT; j++) {
 			for (k = 0; k < LONG; k++) {
-				index = getIndex(k,j,i);
+				index = getIndex(k, j, i);
 				mslp_in[index] = temp_in[j][k];
 				if (temp_in[j][k] < min) {
 					min = temp_in[j][k];
@@ -152,8 +157,8 @@ AMyStaticMeshActor::AMyStaticMeshActor(const class FObjectInitializer& PCIP)
 	/* Close the file and free all resources. */
 	retval = nc_close(ncid);
 	// Temp max and min values because linear scaling isn't very pretty
-	//min = -11500;
-	//max = -6500;
+	min = -11500;
+	max = -6500;
 	if (retval) {
 		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: Close file"));
 	}
@@ -162,10 +167,8 @@ AMyStaticMeshActor::AMyStaticMeshActor(const class FObjectInitializer& PCIP)
 		UE_LOG(LogTemp, Log, TEXT("MIN: %d"), min);
 		UE_LOG(LogTemp, Log, TEXT("MAX: %d"), max);
 	}
-}
 
-void AMyStaticMeshActor::BeginPlay()
-{
+
 	Super::BeginPlay();
 }
 
@@ -225,7 +228,8 @@ void AMyStaticMeshActor::Tick(float DeltaTime)
 	float t = GetWorld()->GetTimeSeconds();
 
 	// Only update the texture every update interval
-	if (t - lastTick > UPDATEINTERVAL)
+	//if (t - lastTick > UPDATEINTERVAL)
+	if(true)
 	{
 		lastTick = t;
 
@@ -260,18 +264,30 @@ void AMyStaticMeshActor::Tick(float DeltaTime)
 					// The red value is a fraction between -1 and 1 where 0 is the midpoint
 					float redvalue = 2 * (curr - mid) / range;
 					// If the red value is positive, the value is > midpoint
-					if (redvalue > 0) {
+					if (redvalue > 0 && redvalue < 1) {
 						// red value is a fraction of the max value, 255 and green is the remaining fraction
 						mDynamicColors[i * 4 + RED] = redvalue * 255;
 						mDynamicColors[i * 4 + GREEN] = 255 - (redvalue * 255);
 						mDynamicColors[i * 4 + BLUE] = 0;
 					}
 					// If the red value is negative, the value is < midpoint
-					else {
+					else if (redvalue < 0 && redvalue > -1){
 						// inverse of red value becomes the new blue value, and the remainig fraction is green
 						mDynamicColors[i * 4 + RED] = 0;
 						mDynamicColors[i * 4 + GREEN] = 255 - (redvalue * -1 * 255);
 						mDynamicColors[i * 4 + BLUE] = redvalue * -1 * 255;
+					}
+					// Positive but off the scale
+					else if (redvalue > 0){
+						mDynamicColors[i * 4 + RED] = 255;
+						mDynamicColors[i * 4 + GREEN] = 0;
+						mDynamicColors[i * 4 + BLUE] = 0;
+					}
+					// Negative but off the scale
+					else {
+						mDynamicColors[i * 4 + RED] = 0;
+						mDynamicColors[i * 4 + GREEN] = 0;
+						mDynamicColors[i * 4 + BLUE] = 255;
 					}
 				}
 			}
@@ -281,7 +297,7 @@ void AMyStaticMeshActor::Tick(float DeltaTime)
 		UpdateTexture();
 		currz++;
 		// Loop timestep if animation is over
-		if (currz > 99) {
+		if (currz > 1459) {
 			currz = 0;
 		}
 	}
