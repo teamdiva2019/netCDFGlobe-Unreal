@@ -21,21 +21,18 @@
 
 /* This is the name of the data file we will read. */
 #define FILE_NAME "C:\\Users\\Erin\\Documents\\Unreal Projects\\DynamicTextureSample\\mslp.2002.nc"
-/* We are reading 2D data, a 144 x 73 grid, over 1460 timesteps. */
+/* There are 3 dimensions (lat, lon, time) and we will update the texture every .1 seconds */
 #define DIMS 3
-#define TIME 1460
-#define LAT 73
-#define LONG 73
 #define UPDATEINTERVAL 0.1
 
 
-long *mslp_in = (long *)malloc(TIME*LAT*LONG * sizeof(long));
-int currz = 0;
-long min = 16000, max = -40000;
+short *mslp_in;
+int currz = 0, min = 16000, max = -40000;
+size_t lat, lon, time;
 
 
 int getIndex(int x, int y, int z) {
-	return x + y * LAT + z * LAT * LONG;
+	return x + y * lat + z * lat * lon;
 }
 
 void UpdateTextureRegions(UTexture2D* Texture, int32 MipIndex, uint32 NumRegions, FUpdateTextureRegion2D* Regions, uint32 SrcPitch, uint32 SrcBpp, uint8* SrcData, bool bFreeData)
@@ -99,6 +96,43 @@ AMyStaticMeshActor::AMyStaticMeshActor(const class FObjectInitializer& PCIP)
 {
 	PrimaryActorTick.bCanEverTick = true;
 
+	// ID variables and error handling
+	int ncid, latid, lonid, timeid, retval;
+	/* Open the file. NC_NOWRITE tells netCDF we want read-only access to the file*/
+	retval = nc_open(FILE_NAME, NC_NOWRITE, &ncid);
+	if (retval)
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: Open file"));
+	// Get the dimension names
+	retval = nc_inq_dimid(ncid, "lat", &latid);
+	if (retval)
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: latid"));
+	retval = nc_inq_dimid(ncid, "lon", &lonid);
+	if (retval)
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: lonid"));
+	retval = nc_inq_dimid(ncid, "time", &timeid);
+	if (retval)
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: timeid"));
+	// Get the dimension lengths; these are used for initialization later on
+	retval = nc_inq_dimlen(ncid, latid, &lat);
+	UE_LOG(LogTemp, Error, TEXT("LAT: %d"), lat);
+	if (retval)
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: latdim"));
+	retval = nc_inq_dimlen(ncid, lonid, &lon);
+	UE_LOG(LogTemp, Error, TEXT("LON: %d"), lon);
+	if (retval)
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: londim"));
+	retval = nc_inq_dimlen(ncid, timeid, &time);
+	UE_LOG(LogTemp, Error, TEXT("TIME: %d"), time);
+	if (retval)
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: timedim"));
+	// Close file for now
+	retval = nc_close(ncid);
+	if (retval) {
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: Close file"));
+	}
+	// TODO: Texture breaks if lon > lat, so we have to manually set it to read in half of the data for now
+	lon = 73;
+
 	mDynamicColors = nullptr;
 	mUpdateTextureRegion = nullptr;
 
@@ -107,52 +141,36 @@ AMyStaticMeshActor::AMyStaticMeshActor(const class FObjectInitializer& PCIP)
 
 void AMyStaticMeshActor::BeginPlay()
 {
-	/* There will be netCDF IDs for the file and variable */
+	/* There will be netCDF IDs for the file and variables */
 	int ncid, mslpvarid;
 	/* Vectors used when reading in a varialbe */
 	size_t start[DIMS], count[DIMS];
-	/* Arrays to read data in to */
-	long temp_in[LAT][LONG];
-	/* Loop indexes, and error handling */
-	int i, j, k, index, retval;
+	/* Loop index and error handling */
+	int retval;
 	/* Open the file. NC_NOWRITE tells netCDF we want read-only access to the file*/
 	retval = nc_open(FILE_NAME, NC_NOWRITE, &ncid);
 	if (retval)
 		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: Open file"));
-	/* Get the varid of the mean sea level pressure data variable, based on its name */
+	// Allocate space for array to read in
+	mslp_in = (short *)malloc(time*lat*lon * sizeof(short));
+	// Get the varid of the mean sea level pressure data variable, based on its name
 	retval = nc_inq_varid(ncid, "mslp", &mslpvarid);
 	if (retval)
-		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: Get varialbe"));
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: Get variable"));
+
 	/* Read the data */
 	/* Set vectors for reading data */
-	count[0] = 1;
-	count[1] = LAT;
-	count[2] = LONG;
+	start[0] = 0;
 	start[1] = 0;
 	start[2] = 0;
-	/* Read in data one timestep at a time */
-	for (i = 0; i < TIME; i++) { // <-- takes way too long, only read in 100 timesteps for now
-	//for (i = 0; i < 100; i++) {
-		start[0] = i;
-		/* Copy current timestep to a temp array */
-		retval = nc_get_vara_long(ncid, mslpvarid, start, count, &temp_in[0][0]);
-		if (retval)
-			UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: Read variable"));
-		/* Copy each individual value in this record to the main 3D array and print it to the logger */
-		for (j = 0; j < LAT; j++) {
-			for (k = 0; k < LONG; k++) {
-				index = getIndex(k, j, i);
-				mslp_in[index] = temp_in[j][k];
-				if (temp_in[j][k] < min) {
-					min = temp_in[j][k];
-				}
-				else if (temp_in[j][k] > max) {
-					max = temp_in[j][k];
-				}
-				UE_LOG(LogTemp, Log, TEXT(" %d "), mslp_in[index]);
-			}
-		}
-	}
+	count[0] = time;
+	count[1] = lat;
+	count[2] = lon;
+
+	// Read in the data
+	retval = nc_get_vara_short(ncid, mslpvarid, start, count, mslp_in);
+	if (retval)
+		UE_LOG(LogTemp, Error, TEXT("ndfCDF Error: Read variable"));
 
 	/* Close the file and free all resources. */
 	retval = nc_close(ncid);
@@ -195,7 +213,7 @@ void AMyStaticMeshActor::SetupTexture()
 	if (mUpdateTextureRegion) delete mUpdateTextureRegion;
 
 	int32 w, h;
-	w = 73;
+	w = lon;
 	h = w;
 
 	mDynamicMaterials.Empty();
@@ -228,8 +246,7 @@ void AMyStaticMeshActor::Tick(float DeltaTime)
 	float t = GetWorld()->GetTimeSeconds();
 
 	// Only update the texture every update interval
-	//if (t - lastTick > UPDATEINTERVAL)
-	if(true)
+	if (t - lastTick > UPDATEINTERVAL)
 	{
 		lastTick = t;
 
@@ -239,67 +256,73 @@ void AMyStaticMeshActor::Tick(float DeltaTime)
 			uint32 x = i % mArrayRowSize;
 			uint32 y = i / mArrayRowSize;
 			// If out of x range, make it black
-			if (x > 144) {
+			if (x >= lon) {
 				mDynamicColors[i * 4 + RED] = 0;
 				mDynamicColors[i * 4 + GREEN] = 0;
 				mDynamicColors[i * 4 + BLUE] = 0;
 			}
-			else {
-				// If out of y range, make it black
-				if (y > 73) {
+			// If out of y range, make it black
+			else if(y >= lat){
 					mDynamicColors[i * 4 + RED] = 0;
 					mDynamicColors[i * 4 + GREEN] = 0;
 					mDynamicColors[i * 4 + BLUE] = 0;
+			}
+			// If in range, determine color using linear scaling algorithm
+			else {
+				short curr = mslp_in[getIndex(x, y, currz)];
+				curr = (curr < 0) ? curr * -1 : curr;
+				// Color scaling algo from:
+				//http://stackoverflow.com/questions/2374959/algorithm-to-convert-any-positive-integer-to-an-rgb-value by Martin Beckett
+				// Get the midpoint of your data values
+				float mid = ((max*-1) + (min*-1)) / 2;
+				//Get the range of your data values
+				short range = (max*-1) - (min*-1);
+				// The red value is a fraction between -1 and 1 where 0 is the midpoint
+				float redvalue = 2 * (curr - mid) / range;
+				// If the red value is positive, the value is > midpoint
+				if (redvalue > 0 && redvalue < 1) {
+					// red value is a fraction of the max value, 255 and green is the remaining fraction
+					mDynamicColors[i * 4 + RED] = redvalue * 255;
+					mDynamicColors[i * 4 + GREEN] = 255 - (redvalue * 255);
+					mDynamicColors[i * 4 + BLUE] = 0;
 				}
-				// If in range, determine color using linear scaling algorithm
+				// If the red value is negative, the value is < midpoint
+				else if (redvalue < 0 && redvalue > -1) {
+					// inverse of red value becomes the new blue value, and the remainig fraction is green
+					mDynamicColors[i * 4 + RED] = 0;
+					mDynamicColors[i * 4 + GREEN] = 255 - (redvalue * -1 * 255);
+					mDynamicColors[i * 4 + BLUE] = redvalue * -1 * 255;
+				}
+				// Positive but off the scale
+				else if (redvalue > 0) {
+					mDynamicColors[i * 4 + RED] = 255;
+					mDynamicColors[i * 4 + GREEN] = 0;
+					mDynamicColors[i * 4 + BLUE] = 0;
+				}
+				// Negative but off the scale
 				else {
-					long curr = mslp_in[getIndex(x, y, currz)];
-					curr = (curr < 0) ? curr * -1 : curr;
-					// Color scaling algo from:
-					//http://stackoverflow.com/questions/2374959/algorithm-to-convert-any-positive-integer-to-an-rgb-value by Martin Beckett
-					// Get the midpoint of your data values
-					float mid = ((max*-1) + (min*-1)) / 2;
-					//Get the range of your data values
-					long range = (max*-1) - (min*-1);
-					// The red value is a fraction between -1 and 1 where 0 is the midpoint
-					float redvalue = 2 * (curr - mid) / range;
-					// If the red value is positive, the value is > midpoint
-					if (redvalue > 0 && redvalue < 1) {
-						// red value is a fraction of the max value, 255 and green is the remaining fraction
-						mDynamicColors[i * 4 + RED] = redvalue * 255;
-						mDynamicColors[i * 4 + GREEN] = 255 - (redvalue * 255);
-						mDynamicColors[i * 4 + BLUE] = 0;
-					}
-					// If the red value is negative, the value is < midpoint
-					else if (redvalue < 0 && redvalue > -1){
-						// inverse of red value becomes the new blue value, and the remainig fraction is green
-						mDynamicColors[i * 4 + RED] = 0;
-						mDynamicColors[i * 4 + GREEN] = 255 - (redvalue * -1 * 255);
-						mDynamicColors[i * 4 + BLUE] = redvalue * -1 * 255;
-					}
-					// Positive but off the scale
-					else if (redvalue > 0){
-						mDynamicColors[i * 4 + RED] = 255;
-						mDynamicColors[i * 4 + GREEN] = 0;
-						mDynamicColors[i * 4 + BLUE] = 0;
-					}
-					// Negative but off the scale
-					else {
-						mDynamicColors[i * 4 + RED] = 0;
-						mDynamicColors[i * 4 + GREEN] = 0;
-						mDynamicColors[i * 4 + BLUE] = 255;
-					}
+					mDynamicColors[i * 4 + RED] = 0;
+					mDynamicColors[i * 4 + GREEN] = 0;
+					mDynamicColors[i * 4 + BLUE] = 255;
 				}
 			}
+			// For debugging
+			/*if (y%2 == 0) {
+				mDynamicColors[i * 4 + RED] = 0;
+				mDynamicColors[i * 4 + GREEN] = 0;
+				mDynamicColors[i * 4 + BLUE] = 0;
+			}*/
 		}
 
 		// Once each pixel has had its RGB channels updated, update the texture and increment the timestep
 		UpdateTexture();
 		currz++;
 		// Loop timestep if animation is over
-		if (currz > 1459) {
+		if (currz >= time) {
 			currz = 0;
 		}
+		// For debugging
+		//currz = 0;
 	}
 }
 
